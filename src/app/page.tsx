@@ -55,7 +55,7 @@ export default function HomePage() {
             />
             <TextPanel
               title="English Translation"
-              subtitle="Translated by Gemini"
+              subtitle="English translation"
               text={document.englishText}
               accent="english"
             />

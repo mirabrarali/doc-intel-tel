@@ -39,7 +39,7 @@ export async function POST(req: NextRequest) {
     let fileName = file.name;
     let fileType = file.type;
 
-    // Convert DOCX to text buffer for Gemini text processing
+    // Convert DOCX to plain text for processing
     if (
       file.type ===
         "application/vnd.openxmlformats-officedocument.wordprocessingml.document" ||

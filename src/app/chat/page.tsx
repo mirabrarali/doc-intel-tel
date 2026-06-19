@@ -24,7 +24,7 @@ export default function ChatPage() {
         <div>
           <h1 className="text-2xl font-bold tracking-tight">Document Chat</h1>
           <p className="text-sm text-zinc-500">
-            Conversational Q&A powered by Groq Llama 3.3
+            Ask questions about your uploaded document
           </p>
         </div>
         {!document && (

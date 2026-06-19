@@ -80,7 +80,7 @@ export default function ChatInterface({ document }: ChatInterfaceProps) {
       <div className="border-b border-zinc-200 px-5 py-4 dark:border-zinc-800">
         <p className="font-semibold">Chat with Document</p>
         <p className="text-xs text-zinc-500">
-          {document.fileName} · {document.proof.detectedLanguage} → English · Groq Llama 3.3
+          {document.fileName} · {document.proof.detectedLanguage} → English
         </p>
       </div>
 

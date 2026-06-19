@@ -111,7 +111,7 @@ export default function DocumentUpload({
         </p>
         <p className="mt-3 flex items-center gap-1.5 text-xs text-zinc-400">
           <FileText className="h-3.5 w-3.5" />
-          Max 10MB · Powered by Gemini
+          Max 10MB
         </p>
       </label>
 
@@ -125,7 +125,7 @@ export default function DocumentUpload({
       {isProcessing && (
         <div className="flex items-center gap-2 rounded-xl border border-indigo-200 bg-indigo-50 px-4 py-3 text-sm text-indigo-700 dark:border-indigo-900 dark:bg-indigo-950/50 dark:text-indigo-300">
           <Loader2 className="h-4 w-4 animate-spin" />
-          Gemini is reading your document and translating to English...
+          Reading your document and translating to English...
         </div>
       )}
     </div>

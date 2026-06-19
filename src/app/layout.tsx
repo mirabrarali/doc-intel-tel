@@ -16,7 +16,7 @@ const geistMono = Geist_Mono({
 export const metadata: Metadata = {
   title: "DocIntel — Document Intelligence",
   description:
-    "Extract, translate, and chat with documents in any language. Powered by Gemini & Groq.",
+    "Extract, translate, and chat with documents in any language.",
 };
 
 export default function RootLayout({

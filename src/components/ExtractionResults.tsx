@@ -44,7 +44,7 @@ export default function ExtractionProofPanel({ proof }: { proof: ExtractionProof
       <div className="flex items-center justify-between">
         <h2 className="text-lg font-semibold">Proof of Extraction</h2>
         <span className="rounded-full bg-emerald-100 px-3 py-1 text-xs font-medium text-emerald-700 dark:bg-emerald-950 dark:text-emerald-400">
-          Verified by Gemini
+          Verified
         </span>
       </div>
 
