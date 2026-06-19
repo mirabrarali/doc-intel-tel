@@ -9,6 +9,7 @@ import {
   AlertCircle,
 } from "lucide-react";
 import type { DocumentData } from "@/lib/types";
+import { parseApiResponse } from "@/lib/fetch-api";
 
 interface DocumentUploadProps {
   onComplete: (doc: DocumentData) => void;
@@ -41,10 +42,18 @@ export default function DocumentUpload({
           body: formData,
         });
 
-        const data = await res.json();
+        const data = await parseApiResponse<{
+          success: boolean;
+          error?: string;
+          document?: DocumentData;
+        }>(res);
 
         if (!res.ok || !data.success) {
           throw new Error(data.error || "Extraction failed");
+        }
+
+        if (!data.document) {
+          throw new Error("No document returned from server");
         }
 
         onComplete(data.document);
@@ -111,7 +120,7 @@ export default function DocumentUpload({
         </p>
         <p className="mt-3 flex items-center gap-1.5 text-xs text-zinc-400">
           <FileText className="h-3.5 w-3.5" />
-          Max 10MB
+          Max 4MB
         </p>
       </label>
 

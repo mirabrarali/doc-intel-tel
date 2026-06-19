@@ -38,7 +38,29 @@ function parseRetrySeconds(message: string): number {
 
 function isQuotaError(err: unknown): boolean {
   const msg = err instanceof Error ? err.message : String(err);
-  return msg.includes("429") || msg.includes("quota") || msg.includes("Too Many Requests");
+  return (
+    msg.includes("429") ||
+    msg.includes("quota") ||
+    msg.includes("Too Many Requests") ||
+    msg.includes("limit: 0")
+  );
+}
+
+function parseExtractionJson(raw: string): ExtractionResult {
+  const jsonMatch = raw.match(/\{[\s\S]*\}/);
+  if (!jsonMatch) {
+    throw new Error("Failed to parse extraction response");
+  }
+
+  try {
+    const parsed = JSON.parse(jsonMatch[0]) as ExtractionResult;
+    if (!parsed.originalText || !parsed.englishText) {
+      throw new Error("Incomplete extraction result");
+    }
+    return parsed;
+  } catch {
+    throw new Error("Model returned invalid JSON. Try a smaller document.");
+  }
 }
 
 const EXTRACTION_PROMPT = `You are a document intelligence system. Analyze this document carefully.
@@ -60,19 +82,25 @@ Rules:
 - confidence is a number between 0 and 1 representing extraction quality
 - If the document is already in English, originalText and englishText can be the same
 - Do not summarize — extract and translate the complete content
-- Preserve meaning, numbers, dates, and names accurately`;
+- Preserve meaning, numbers, dates, and names accurately
+- Escape special characters properly inside JSON strings`;
 
-async function generateWithModel(
-  modelName: string,
-  parts: Parameters<ReturnType<GoogleGenerativeAI["getGenerativeModel"]>["generateContent"]>[0]
-) {
-  const model = genAI.getGenerativeModel({ model: modelName });
+type ContentParts = Parameters<
+  ReturnType<GoogleGenerativeAI["getGenerativeModel"]>["generateContent"]
+>[0];
+
+async function generateWithModel(modelName: string, parts: ContentParts) {
+  const model = genAI.getGenerativeModel({
+    model: modelName,
+    generationConfig: {
+      responseMimeType: "application/json",
+      temperature: 0.1,
+    },
+  });
   return model.generateContent(parts);
 }
 
-async function generateWithFallback(
-  parts: Parameters<ReturnType<GoogleGenerativeAI["getGenerativeModel"]>["generateContent"]>[0]
-) {
+async function generateWithFallback(parts: ContentParts) {
   let lastError: unknown;
 
   for (const modelName of MODEL_FALLBACKS) {
@@ -106,7 +134,7 @@ export async function extractAndTranslate(
   const mimeType = getMimeType(fileName);
   const isTextFile = mimeType === "text/plain" || fileType.startsWith("text/");
 
-  const parts = isTextFile
+  const parts: ContentParts = isTextFile
     ? [EXTRACTION_PROMPT, `\n\nDocument content:\n${buffer.toString("utf-8")}`]
     : [
         EXTRACTION_PROMPT,
@@ -123,20 +151,13 @@ export async function extractAndTranslate(
     response = await generateWithFallback(parts);
   } catch (err) {
     if (isQuotaError(err)) {
-      throw new Error(
-        "Document processing quota reached. Wait a minute and try again, or set GEMINI_MODEL in Vercel env vars to a model your API key supports (e.g. gemini-2.5-flash)."
-      );
+      throw new Error("GEMINI_QUOTA_EXCEEDED");
     }
     throw err;
   }
 
   const raw = response.response.text();
-  const jsonMatch = raw.match(/\{[\s\S]*\}/);
-  if (!jsonMatch) {
-    throw new Error("Failed to parse extraction response");
-  }
-
-  const parsed = JSON.parse(jsonMatch[0]) as ExtractionResult;
+  const parsed = parseExtractionJson(raw);
   const processingTimeMs = Date.now() - start;
 
   return { result: parsed, processingTimeMs };
@@ -161,4 +182,14 @@ export function buildProof(
     fileSizeBytes,
     extractedAt: new Date().toISOString(),
   };
+}
+
+export function isImageOrPdf(fileName: string, fileType: string): boolean {
+  const mimeType = getMimeType(fileName);
+  return (
+    mimeType === "application/pdf" ||
+    mimeType.startsWith("image/") ||
+    fileType.startsWith("image/") ||
+    fileType === "application/pdf"
+  );
 }

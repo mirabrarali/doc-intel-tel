@@ -3,6 +3,7 @@
 import { useEffect, useRef, useState } from "react";
 import { Send, Loader2, Bot, User, FileWarning } from "lucide-react";
 import type { ChatMessage, DocumentData } from "@/lib/types";
+import { parseApiResponse } from "@/lib/fetch-api";
 
 interface ChatInterfaceProps {
   document: DocumentData | null;
@@ -42,10 +43,18 @@ export default function ChatInterface({ document }: ChatInterfaceProps) {
         }),
       });
 
-      const data = await res.json();
+      const data = await parseApiResponse<{
+        success: boolean;
+        error?: string;
+        reply?: string;
+      }>(res);
 
       if (!res.ok || !data.success) {
         throw new Error(data.error || "Chat failed");
+      }
+
+      if (!data.reply) {
+        throw new Error("No reply from server");
       }
 
       setMessages([...updated, { role: "assistant", content: data.reply }]);

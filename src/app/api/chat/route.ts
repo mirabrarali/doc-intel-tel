@@ -3,6 +3,7 @@ import { chatWithDocument } from "@/lib/groq";
 import type { ChatRequest, ErrorResponse } from "@/lib/types";
 
 export const maxDuration = 30;
+export const runtime = "nodejs";
 
 export async function POST(req: NextRequest) {
   try {
