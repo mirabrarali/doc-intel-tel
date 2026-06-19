@@ -1,5 +1,7 @@
 import { GoogleGenerativeAI } from "@google/generative-ai";
 import type { ExtractionProof } from "./types";
+import { chunkText, mergeExtractedParts, containsTeluguScript } from "./chunk";
+import { EXTRACT_ONLY_PROMPT, TRANSLATE_PROMPT } from "./prompts";
 
 const genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY || "");
 
@@ -14,6 +16,10 @@ export interface ExtractionResult {
   detectedLanguage: string;
   confidence: number;
 }
+
+type ContentParts = Parameters<
+  ReturnType<GoogleGenerativeAI["getGenerativeModel"]>["generateContent"]
+>[0];
 
 function getMimeType(fileName: string): string {
   const ext = fileName.split(".").pop()?.toLowerCase() || "";
@@ -46,55 +52,23 @@ function isQuotaError(err: unknown): boolean {
   );
 }
 
-function parseExtractionJson(raw: string): ExtractionResult {
+function parseJsonField<T>(raw: string, field: keyof T): T {
   const jsonMatch = raw.match(/\{[\s\S]*\}/);
-  if (!jsonMatch) {
-    throw new Error("Failed to parse extraction response");
-  }
-
+  if (!jsonMatch) throw new Error("Failed to parse model response");
   try {
-    const parsed = JSON.parse(jsonMatch[0]) as ExtractionResult;
-    if (!parsed.originalText || !parsed.englishText) {
-      throw new Error("Incomplete extraction result");
-    }
-    return parsed;
+    return JSON.parse(jsonMatch[0]) as T;
   } catch {
     throw new Error("Model returned invalid JSON. Try a smaller document.");
   }
 }
-
-const EXTRACTION_PROMPT = `You are a document intelligence system. Analyze this document carefully.
-
-TASK:
-1. Extract ALL text content from the document exactly as written, preserving structure (paragraphs, lists, tables as readable text).
-2. Detect the source language of the document.
-3. Translate the full extracted text into clear, accurate English.
-
-Respond ONLY with valid JSON in this exact format (no markdown, no code fences):
-{
-  "originalText": "full extracted text in original language",
-  "englishText": "full translated text in English",
-  "detectedLanguage": "language name in English e.g. Telugu, Hindi, Arabic",
-  "confidence": 0.95
-}
-
-Rules:
-- confidence is a number between 0 and 1 representing extraction quality
-- If the document is already in English, originalText and englishText can be the same
-- Do not summarize — extract and translate the complete content
-- Preserve meaning, numbers, dates, and names accurately
-- Escape special characters properly inside JSON strings`;
-
-type ContentParts = Parameters<
-  ReturnType<GoogleGenerativeAI["getGenerativeModel"]>["generateContent"]
->[0];
 
 async function generateWithModel(modelName: string, parts: ContentParts) {
   const model = genAI.getGenerativeModel({
     model: modelName,
     generationConfig: {
       responseMimeType: "application/json",
-      temperature: 0.1,
+      temperature: 0.05,
+      maxOutputTokens: 8192,
     },
   });
   return model.generateContent(parts);
@@ -124,43 +98,140 @@ async function generateWithFallback(parts: ContentParts) {
   throw lastError;
 }
 
-export async function extractAndTranslate(
+function buildContentParts(
   buffer: Buffer,
   fileName: string,
-  fileType: string
-): Promise<{ result: ExtractionResult; processingTimeMs: number }> {
-  const start = Date.now();
-
+  fileType: string,
+  prompt: string,
+  extraText?: string
+): ContentParts {
   const mimeType = getMimeType(fileName);
   const isTextFile = mimeType === "text/plain" || fileType.startsWith("text/");
 
-  const parts: ContentParts = isTextFile
-    ? [EXTRACTION_PROMPT, `\n\nDocument content:\n${buffer.toString("utf-8")}`]
-    : [
-        EXTRACTION_PROMPT,
-        {
-          inlineData: {
-            mimeType,
-            data: buffer.toString("base64"),
-          },
-        },
-      ];
+  if (extraText) {
+    return [prompt, `\n\nDocument text:\n${extraText}`];
+  }
+
+  if (isTextFile) {
+    return [prompt, `\n\nDocument content:\n${buffer.toString("utf-8")}`];
+  }
+
+  return [
+    prompt,
+    {
+      inlineData: {
+        mimeType,
+        data: buffer.toString("base64"),
+      },
+    },
+  ];
+}
+
+async function extractOriginalText(
+  buffer: Buffer,
+  fileName: string,
+  fileType: string,
+  plainText?: string
+): Promise<{ originalText: string; detectedLanguage: string; confidence: number }> {
+  const parts = buildContentParts(
+    buffer,
+    fileName,
+    fileType,
+    EXTRACT_ONLY_PROMPT,
+    plainText
+  );
 
   let response;
   try {
     response = await generateWithFallback(parts);
   } catch (err) {
-    if (isQuotaError(err)) {
-      throw new Error("GEMINI_QUOTA_EXCEEDED");
-    }
+    if (isQuotaError(err)) throw new Error("GEMINI_QUOTA_EXCEEDED");
     throw err;
   }
 
-  const raw = response.response.text();
-  const parsed = parseExtractionJson(raw);
+  const parsed = parseJsonField<{
+    originalText: string;
+    detectedLanguage: string;
+    confidence: number;
+  }>(response.response.text(), "originalText");
+
+  if (!parsed.originalText?.trim()) {
+    throw new Error("No text could be extracted from this document.");
+  }
+
+  return parsed;
+}
+
+async function translateChunk(
+  text: string,
+  language: string
+): Promise<string> {
+  const parts: ContentParts = [
+    TRANSLATE_PROMPT(language),
+    `\n\nText to translate:\n${text}`,
+  ];
+
+  let response;
+  try {
+    response = await generateWithFallback(parts);
+  } catch (err) {
+    if (isQuotaError(err)) throw new Error("GEMINI_QUOTA_EXCEEDED");
+    throw err;
+  }
+
+  const parsed = parseJsonField<{ englishText: string }>(
+    response.response.text(),
+    "englishText"
+  );
+
+  return parsed.englishText || "";
+}
+
+async function translateToEnglish(
+  originalText: string,
+  detectedLanguage: string
+): Promise<string> {
+  const isEnglish =
+    detectedLanguage.toLowerCase().includes("english") &&
+    !containsTeluguScript(originalText);
+
+  if (isEnglish) return originalText;
+
+  const chunks = chunkText(originalText, 8000);
+  const translated: string[] = [];
+
+  for (const chunk of chunks) {
+    const part = await translateChunk(chunk, detectedLanguage);
+    translated.push(part);
+  }
+
+  return mergeExtractedParts(translated);
+}
+
+export async function extractAndTranslate(
+  buffer: Buffer,
+  fileName: string,
+  fileType: string,
+  plainText?: string
+): Promise<{ result: ExtractionResult; processingTimeMs: number }> {
+  const start = Date.now();
+
+  const { originalText, detectedLanguage, confidence } =
+    await extractOriginalText(buffer, fileName, fileType, plainText);
+
+  const englishText = await translateToEnglish(originalText, detectedLanguage);
+
   const processingTimeMs = Date.now() - start;
 
-  return { result: parsed, processingTimeMs };
+  return {
+    result: {
+      originalText,
+      englishText,
+      detectedLanguage,
+      confidence,
+    },
+    processingTimeMs,
+  };
 }
 
 export function buildProof(
@@ -192,4 +263,8 @@ export function isImageOrPdf(fileName: string, fileType: string): boolean {
     fileType.startsWith("image/") ||
     fileType === "application/pdf"
   );
+}
+
+export function isMultimodalFile(fileName: string, fileType: string): boolean {
+  return isImageOrPdf(fileName, fileType);
 }

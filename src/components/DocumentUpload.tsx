@@ -113,7 +113,7 @@ export default function DocumentUpload({
         </div>
 
         <p className="mt-4 text-lg font-medium">
-          {isProcessing ? "Extracting & translating..." : "Drop your document here"}
+          {isProcessing ? "Processing document..." : "Drop your document here"}
         </p>
         <p className="mt-1 text-sm text-zinc-500">
           PDF, images, DOCX, TXT — any language → English
@@ -134,7 +134,7 @@ export default function DocumentUpload({
       {isProcessing && (
         <div className="flex items-center gap-2 rounded-xl border border-indigo-200 bg-indigo-50 px-4 py-3 text-sm text-indigo-700 dark:border-indigo-900 dark:bg-indigo-950/50 dark:text-indigo-300">
           <Loader2 className="h-4 w-4 animate-spin" />
-          Reading your document and translating to English...
+          Reading, extracting & translating — complex Telugu documents may take up to a minute...
         </div>
       )}
     </div>
